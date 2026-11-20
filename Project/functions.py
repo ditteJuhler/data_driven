@@ -1,4 +1,6 @@
 import numpy as np
+from scipy.interpolate import CubicSpline
+
 
 # Define the Smallpox model
 def smallpox_model(t, x, p):
@@ -39,15 +41,50 @@ def smallpox_h(theta):
     return omega
 
 # Linear system matrix
-def smallpox_A_i(S_i, En_i, Ei_i, Ci_i, I_i, Q_i, U_i, V_i, N):
-    A_i = np.array([[Ci_i, -Ci_i, -10 * S_i * I_i / N, 10 * S_i * I_i / N - 10 * S_i**2 / N, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 10*S_i*I_i/N, -10*S_i*I_i/N, -En_i, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 10*S_i*I_i/N, -Ei_i, -Ei_i, Ei_i, 0, 0, 0],
-                    [-Ci_i, 0, 0, 10*S_i**2/N - 10*S_i*I_i/N, 0, 0, 0, 0, 0, 0],
-                    [0, 0, -I_i, 0, En_i, 0, 0, -I_i, -En_i, 0],
-                    [0, 0, 0, 0, Ei_i, 0, -Ei_i, I_i, En_i, -Q_i],
-                    [0, 0, I_i, 0, 0, 0, 0, 0, 0, Q_i],
-                    [0, Ci_i, 0, 0, 0, Ei_i, 0, 0, 0, 0]])
+def smallpox_A(y, N):
+    S, En, Ei, Ci, I, Q, U, V = y
+    A = np.array([[Ci, -Ci, -10 * S * I / N, 10 * S * I / N - 10 * S**2 / N, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 10*S*I/N, -10*S*I/N, -En, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 10*S*I/N, -Ei, -Ei, Ei, 0, 0, 0],
+                    [-Ci, 0, 0, 10*S**2/N - 10*S*I/N, 0, 0, 0, 0, 0, 0],
+                    [0, 0, -I, 0, En, 0, 0, -I, -En, 0],
+                    [0, 0, 0, 0, Ei, 0, -Ei, I, En, -Q],
+                    [0, 0, I, 0, 0, 0, 0, 0, 0, Q],
+                    [0, Ci, 0, 0, 0, Ei, 0, 0, 0, 0]])
 
-    return A_i
+    return A
+
+""" Begin regression algorithm """
+
+# Integrate linear model to create J
+
+def J(t, y, N, matrix_fn, shape_J):
+    A_list = []
+    
+    for i in range(len(t)):
+        y_i = np.asarray(y[:, i])
+        A_i = matrix_fn(y_i, N)
+        
+        A_list.append(A_i)
+
+    A_values = np.stack(A_list, axis=0)
+
+    assert shape_J == A_values.shape, "The shape of A must match the shape of J (m, n, p)"
+
+    A_spline = CubicSpline(t, A_values)
+
+    J = np.zeros(shape_J)
+    for i in range(len(t)):
+        J[i] = A_spline.integrate(t[0], t[i])
+
+    return J
+
+# Created the "augmented" system (??)
+def M(J):
+    m, n, p = J.shape
+    I_n = np.eye(n)
+    I_n_stacked = np.broadcast_to(I_n, (m, n, n))
+
+    M = np.concatenate((J, I_n_stacked), axis=2)
+    return M.reshape((n*m, p+n))
 
